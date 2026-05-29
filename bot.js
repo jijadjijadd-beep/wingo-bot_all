@@ -1,40 +1,499 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const express = require('express');
 
 const BOT_TOKEN = '8237373943:AAEu0Gww7ez_eaKiB6lVG_v6jHPETpF_3JA';
 const CHAT_ID = '-1003724062754';
-const API_URL = "https://draw.ar-lottery01.com/WinGo/WinGo_30/GetHistoryIssuePage.json";
 
-// স্টিকার File ID - চেঞ্জ করো নিজের স্টিকার দিয়ে
-const WIN_STICKER = 'CAACAgUAAxkBAAEBW8xmZ2VlZ2VlZ2VlZ2VlZ2VlZ2VlZ2UAAgACGAADwDZPGkqX2YV0KzIrHgQ'; // ✅ স্টিকার
-const LOSS_STICKER = 'CAACAgUAAxkBAAEBW8xmZ2VlZ2VlZ2VlZ2VlZ2VlZ2VlZ2UAAgACGAADwDZPGkqX2YV0KzIrHgQ'; // ❌ স্টিকার
+const API_URL =
+'https://draw.ar-lottery01.com/WinGo/WinGo_30/GetHistoryIssuePage.json';
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: false });
+// ===== STICKERS =====
+const WIN_STICKER =
+'CAACAgUAAxkBAAEBW8xmZ2VlZ2VlZ2VlZ2VlZ2VlZ2VlZ2UAAgACGAADwDZPGkqX2YV0KzIrHgQ';
 
+const LOSS_STICKER =
+'CAACAgUAAxkBAAEBW8xmZ2VlZ2VlZ2VlZ2VlZ2VlZ2VlZ2UAAgACGAADwDZPGkqX2YV0KzIrHgQ';
+
+// ===== BOT =====
+const bot = new TelegramBot(BOT_TOKEN, {
+  polling: false
+});
+
+// ===== STATE =====
 let lastPeriod = null;
+
 let currentSignal = null;
 
-// উল্টা সিগনাল জেনারেটর - Small 0-4 র‍্যান্ডম, Big 5-9 র‍্যান্ডম
-async function generateReverseSignal() {
+let stats = {
+  wins: 0,
+  losses: 0
+};
+
+let history = [];
+
+// ===== FETCH RESULT =====
+async function fetchGameResult() {
+
   try {
+
     const response = await axios.get(API_URL);
+
     const data = response.data;
 
-    if (!data ||!data.data || data.data.length < 5) {
-      const isBig = Math.random() > 0.5;
-      const num1 = isBig? Math.floor(Math.random() * 5) : 5 + Math.floor(Math.random() * 5);
-      const num2 = isBig? Math.floor(Math.random() * 5) : 5 + Math.floor(Math.random() * 5);
+    if (
+      !data ||
+      !data.data ||
+      !data.data.list
+    ) {
+      return [];
+    }
+
+    return data.data.list.map(item => ({
+      period: item.issueNumber,
+      number: parseInt(item.number)
+    }));
+
+  } catch (error) {
+
+    console.log(
+      'API ERROR:',
+      error.message
+    );
+
+    return [];
+  }
+
+}
+
+// ===== ORIGINAL SIGNAL LOGIC =====
+async function generateReverseSignal() {
+
+  try {
+
+    const response =
+    await axios.get(API_URL);
+
+    const data = response.data;
+
+    if (
+      !data ||
+      !data.data ||
+      !data.data.list ||
+      data.data.list.length < 5
+    ) {
+
+      const isBig =
+      Math.random() > 0.5;
+
+      const num1 = isBig
+      ? Math.floor(Math.random() * 5)
+      : 5 + Math.floor(Math.random() * 5);
+
+      const num2 = isBig
+      ? Math.floor(Math.random() * 5)
+      : 5 + Math.floor(Math.random() * 5);
+
       return {
-        signal: isBig? 'SMALL' : 'BIG',
-        numbers: [num1, num2].sort((a,b)=>a-b)
+        signal: isBig
+        ? 'SMALL'
+        : 'BIG',
+
+        numbers: [num1, num2]
+        .sort((a,b)=>a-b)
       };
+
     }
 
     let bigCount = 0;
     let smallCount = 0;
-    const recentResults = data.data.slice(0, 5);
+
+    const recentResults =
+    data.data.list.slice(0, 5);
 
     for (const result of recentResults) {
+
+      const num =
+      Number(result.number);
+
+      if (num >= 5) {
+        bigCount++;
+      } else {
+        smallCount++;
+      }
+
+    }
+
+    // ===== SAME LOGIC =====
+    let originalSignal =
+    bigCount > smallCount
+    ? 'SMALL'
+    : 'BIG';
+
+    if (bigCount === smallCount) {
+
+      originalSignal =
+      ['BIG', 'SMALL'][
+        Math.floor(Math.random() * 2)
+      ];
+
+    }
+
+    const reverseSignal =
+    originalSignal === 'BIG'
+    ? 'SMALL'
+    : 'BIG';
+
+    let numbers = [];
+
+    if (reverseSignal === 'SMALL') {
+
+      let n1 =
+      Math.floor(Math.random() * 5);
+
+      let n2 =
+      Math.floor(Math.random() * 5);
+
+      numbers =
+      [n1, n2]
+      .sort((a,b)=>a-b);
+
+    } else {
+
+      let n1 =
+      5 + Math.floor(Math.random() * 5);
+
+      let n2 =
+      5 + Math.floor(Math.random() * 5);
+
+      numbers =
+      [n1, n2]
+      .sort((a,b)=>a-b);
+
+    }
+
+    return {
+      signal: reverseSignal,
+      numbers: numbers
+    };
+
+  } catch (error) {
+
+    console.log(
+      'Generate Signal Error:',
+      error.message
+    );
+
+    return {
+      signal: 'SMALL',
+      numbers: [0,1]
+    };
+
+  }
+
+}
+
+// ===== SEND MESSAGE =====
+async function sendMessage(text) {
+
+  try {
+
+    await bot.sendMessage(
+      CHAT_ID,
+      text
+    );
+
+  } catch (error) {
+
+    console.log(
+      'Message Error:',
+      error.message
+    );
+
+  }
+
+}
+
+// ===== SEND STICKER =====
+async function sendSticker(sticker) {
+
+  try {
+
+    await bot.sendSticker(
+      CHAT_ID,
+      sticker
+    );
+
+  } catch (error) {
+
+    console.log(
+      'Sticker Error:',
+      error.message
+    );
+
+  }
+
+}
+
+// ===== RESULT CHECK =====
+async function checkResult() {
+
+  try {
+
+    const results =
+    await fetchGameResult();
+
+    if (results.length === 0) {
+      return;
+    }
+
+    const latestResult =
+    results[0];
+
+    // ===== CHECK OLD SIGNAL =====
+    if (
+      currentSignal &&
+      lastPeriod &&
+      latestResult.period !== lastPeriod
+    ) {
+
+      const resultNum =
+      Number(latestResult.number);
+
+      const isBig =
+      resultNum >= 5;
+
+      const signalBig =
+      currentSignal.signal === 'BIG';
+
+      let result = 'LOSS';
+
+      // ===== SAME LOGIC =====
+      if (
+        signalBig &&
+        isBig &&
+        currentSignal.numbers.includes(resultNum)
+      ) {
+
+        result = 'WIN';
+
+      } else if (
+        !signalBig &&
+        !isBig &&
+        currentSignal.numbers.includes(resultNum)
+      ) {
+
+        result = 'WIN';
+
+      }
+
+      // ===== SAVE HISTORY =====
+      history.unshift({
+        period: currentSignal.period,
+        signal: currentSignal.signal,
+        numbers: currentSignal.numbers,
+        resultNumber: resultNum,
+        status: result
+      });
+
+      if (history.length > 50) {
+        history.pop();
+      }
+
+      // ===== WIN =====
+      if (result === 'WIN') {
+
+        stats.wins++;
+
+        await sendSticker(
+          WIN_STICKER
+        );
+
+        await sendMessage(`
+◈▣▣▣ 👑 RESULT 👑 ▣▣▣◈
+
+✅ STATUS: WIN
+
+🎯 RESULT NUMBER: ${resultNum}
+
+🔥 SIGNAL:
+${currentSignal.signal}
+
+🎲 NUMBERS:
+${currentSignal.numbers[0]}/${currentSignal.numbers[1]}
+
+◈▣▣▣ 💎 WIN 💎 ▣▣▣◈
+`);
+
+      }
+
+      // ===== LOSS =====
+      else {
+
+        stats.losses++;
+
+        await sendSticker(
+          LOSS_STICKER
+        );
+
+        await sendMessage(`
+◈▣▣▣ 👑 RESULT 👑 ▣▣▣◈
+
+❌ STATUS: LOSS
+
+🎯 RESULT NUMBER: ${resultNum}
+
+🔥 SIGNAL:
+${currentSignal.signal}
+
+🎲 NUMBERS:
+${currentSignal.numbers[0]}/${currentSignal.numbers[1]}
+
+◈▣▣▣ 💀 LOSS 💀 ▣▣▣◈
+`);
+
+      }
+
+    }
+
+    lastPeriod =
+    latestResult.period;
+
+  } catch (error) {
+
+    console.log(
+      'Check Result Error:',
+      error.message
+    );
+
+  }
+
+}
+
+// ===== SEND SIGNAL =====
+async function sendSignal() {
+
+  try {
+
+    // ===== CHECK RESULT FIRST =====
+    await checkResult();
+
+    const results =
+    await fetchGameResult();
+
+    if (results.length === 0) {
+      return;
+    }
+
+    const latest =
+    results[0];
+
+    const nextPeriod =
+    (
+      BigInt(latest.period) + 1n
+    ).toString();
+
+    // ===== GENERATE SIGNAL =====
+    currentSignal =
+    await generateReverseSignal();
+
+    currentSignal.period =
+    nextPeriod;
+
+    const total =
+    stats.wins + stats.losses;
+
+    const accuracy =
+    total > 0
+    ? (
+      (stats.wins / total) * 100
+    ).toFixed(1)
+    : 0;
+
+    // ===== SEND NEW SIGNAL =====
+    const message = `
+◈▣▣▣ 👑 WINGO SIGNAL 👑 ▣▣▣◈
+
+⚡ GAME: 30S
+
+🆔 PERIOD:
+${nextPeriod}
+
+🔥 BET NOW:
+${currentSignal.signal}
+
+🎯 NUMBER:
+${currentSignal.numbers[0]}, ${currentSignal.numbers[1]}
+
+📊 WIN:
+${stats.wins}
+
+📊 LOSS:
+${stats.losses}
+
+📈 ACCURACY:
+${accuracy}%
+
+◈▣▣▣ 💎 SIGNAL 💎 ▣▣▣◈
+`;
+
+    await sendMessage(message);
+
+    console.log(`
+NEW SIGNAL:
+${currentSignal.signal}
+${currentSignal.numbers[0]}/${currentSignal.numbers[1]}
+`);
+
+  } catch (error) {
+
+    console.log(
+      'Send Signal Error:',
+      error.message
+    );
+
+  }
+
+}
+
+// ===== START =====
+console.log(
+'BOT STARTED 24/7'
+);
+
+// ===== FIRST RUN =====
+sendSignal();
+
+// ===== AUTO RUN =====
+setInterval(
+  sendSignal,
+  30000
+);
+
+// ===== EXPRESS SERVER =====
+const app = express();
+
+const PORT =
+process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+
+  res.send(`
+  <h2>
+  WINGO BOT RUNNING 24/7
+  </h2>
+  `);
+
+});
+
+app.listen(PORT, () => {
+
+  console.log(`
+  SERVER RUNNING:
+  ${PORT}
+  `);
+
+});    for (const result of recentResults) {
       const num = Number(result.number);
       if (num >= 5) bigCount++;
       else smallCount++;
